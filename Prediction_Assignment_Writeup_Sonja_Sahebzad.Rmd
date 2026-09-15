@@ -103,6 +103,7 @@ No manual interaction terms were added. A forest already models interactions thr
 # Discussion
 
 The close agreement between five-fold cross-validation, held-out validation, and out-of-bag performance supports the stability of the selected random forest. The much lower accuracy of the single tree shows that exercise quality depends on complex combinations of sensor measurements. The main limitation is that the row-level split includes observations from the same participants in development and validation. The reported error therefore estimates performance on similar participants and recording conditions; validation that holds out complete participants would provide a stricter test of generalization to new people.
+
 # Predictions for the 20 test cases
 
 The selected random forest was refit to all `r res$n` labeled rows with 750 trees. The following are the requested predictions, ordered by `problem_id`.
@@ -114,6 +115,7 @@ knitr::kable(res$predictions, col.names = c("Problem ID", "Predicted classe"))
 # Conclusion
 
 The random forest was the strongest candidate, achieving **`r sprintf('%.2f%%', 100*res$rf_acc)`** accuracy on the untouched validation set and an estimated out-of-sample error of **`r sprintf('%.2f%%', 100*res$rf_error)`**. Its consistent cross-validation and out-of-bag results support the final choice. After refitting on all labeled observations, the model generated predictions for each of the 20 required test cases.
+
 # Reproducibility and source
 
 This HTML document was knitted from the accompanying R Markdown file. The complete fitting script, fixed random seeds, source CSV files, saved results, and quiz-output files are included in the project directory. Package and session versions appear below.
@@ -123,4 +125,5 @@ sessionInfo()
 ```
 
 The data were provided by the Pontifical Catholic University of Rio de Janeiro's [Weight Lifting Exercise Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har). The course copies of the [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [20 test cases](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) are retained unchanged.
+
 
