@@ -1,0 +1,119 @@
+---
+title: "Predicting Barbell-Lift Execution from Wearable Sensors"
+author: "Sonja Sahebzad"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    self_contained: true
+    toc: true
+    toc_float: true
+    code_folding: show
+    fig_caption: true
+    theme: cosmo
+---
+
+<style>
+body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #111; max-width: 1050px; margin: auto; line-height: 1.5; }
+h1, h2, h3 { color: #111; font-weight: 600; }
+table { width: auto; border-collapse: collapse; margin: 1em 0; }
+th { background: #e5e5e5; } th, td { border: 1px solid #999; padding: 5px 9px; }
+pre { border-left: 4px solid #777; background: #f5f5f5; }
+.figure { text-align: center; } .caption { color: #333; }
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.align = "center", fig.width = 7, fig.height = 4)
+res <- readRDS("analysis_results.rds")
+```
+
+# Executive summary
+
+This report predicts the five exercise-execution classes (`classe`) from accelerometers worn on the belt, forearm, arm, and dumbbell. A random forest was selected because the sensor relationships are nonlinear and may interact. Model choice was checked against a single classification tree. Five-fold cross-validation on a development set estimated random-forest accuracy at **`r sprintf('%.2f%%', 100*res$cv_rf_mean)`**; an untouched validation set produced **`r sprintf('%.2f%%', 100*res$rf_acc)`** accuracy and **`r sprintf('%.2f%%', 100*res$rf_error)`** error. The final model predicts the 20 quiz cases as shown below.
+
+# Data and preprocessing
+
+The training data contain `r res$n` observations. The outcome has five levels: A denotes the correct lift; B--E denote four distinct errors. I removed row identifiers, participant names, timestamps, and window bookkeeping fields. These fields describe data collection rather than body movement and could let a model memorize participants or recording order. I also removed variables observed in fewer than 95% of rows. This left `r res$p` complete sensor predictors and avoided imputing columns that are almost entirely missing.
+
+```{r preprocessing, eval=FALSE}
+training_raw <- read.csv("pml-training.csv",
+  na.strings = c("NA", "#DIV/0!", ""), check.names = FALSE)
+metadata <- c("X", "user_name", "raw_timestamp_part_1",
+  "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+candidate <- setdiff(names(training_raw), c(metadata, "classe", ""))
+predictors <- candidate[vapply(training_raw[candidate],
+  function(x) mean(!is.na(x)), numeric(1)) >= 0.95]
+model_data <- training_raw[c(predictors, "classe")]
+model_data$classe <- factor(model_data$classe)
+```
+
+```{r class-distribution, echo=FALSE, fig.cap="Figure 1. Exercise classes are reasonably represented, supporting stratified resampling."}
+cols <- gray.colors(5, start = 0.25, end = 0.80)
+barplot(res$class_counts, col = cols, border = "black",
+        xlab = "Exercise class", ylab = "Training observations")
+```
+
+# Validation design and candidate models
+
+I used a fixed seed and stratified the observations by `classe`, assigning 75% to development and 25% (`r res$validation_n` rows) to final validation. All model comparison occurred within the development set. Five stratified folds provided out-of-sample predictions for every development observation. This separation prevents the final validation result from benefiting from model selection.
+
+The candidates were (1) a classification tree, which is easy to interpret but unstable, and (2) a random forest, which averages many decorrelated trees. The forest used `mtry = floor(sqrt(52))`, a conventional classification default. The cross-validation comparison strongly favored the forest.
+
+```{r cv-code, eval=FALSE}
+for (k in 1:5) {
+  rf <- randomForest(classe ~ ., data = development[fold != k, ],
+    ntree = 250, mtry = floor(sqrt(length(predictors))))
+  rf_prediction <- predict(rf, development[fold == k, ])
+  cv_accuracy[k] <- mean(rf_prediction == development$classe[fold == k])
+}
+```
+
+```{r cv-comparison, echo=FALSE, fig.cap="Figure 2. Five-fold cross-validation accuracy by candidate model."}
+cv <- data.frame(
+  accuracy = c(res$cv_rf, res$cv_tree),
+  model = factor(rep(c("Random forest", "Single tree"), each = 5),
+                 levels = c("Single tree", "Random forest")))
+boxplot(accuracy ~ model, data = cv, col = c("white", "gray70"),
+        border = "black", ylab = "Fold accuracy", xlab = "",
+        ylim = range(cv$accuracy) + c(-0.02, 0.02))
+stripchart(accuracy ~ model, data = cv, vertical = TRUE, add = TRUE,
+           method = "jitter", pch = c(1, 16)[cv$model], col = "black")
+```
+
+The forest's mean cross-validation accuracy was `r sprintf('%.4f', res$cv_rf_mean)` (fold SD `r sprintf('%.4f', res$cv_rf_sd)`), versus `r sprintf('%.4f', res$cv_tree_mean)` (SD `r sprintf('%.4f', res$cv_tree_sd)`) for the single tree. Thus the substantive conclusion is sensitive to choosing a sufficiently flexible model, but the forest result itself is stable across folds.
+
+# Final validation and expected error
+
+After selection, I refit both candidates on the complete development set and evaluated them once on the held-out validation set. The random forest achieved `r sprintf('%.4f', res$rf_acc)` accuracy, compared with `r sprintf('%.4f', res$tree_acc)` for the single tree.
+
+```{r confusion, echo=FALSE}
+knitr::kable(res$rf_cm, caption = "Held-out confusion matrix for the selected random forest")
+```
+
+The held-out error estimate is **`r sprintf('%.2f%%', 100*res$rf_error)`**. A 95% Wilson interval places the underlying accuracy between `r sprintf('%.2f%%', 100*res$acc_ci[1])` and `r sprintf('%.2f%%', 100*res$acc_ci[2])`, equivalent to an error interval from `r sprintf('%.2f%%', 100*res$error_ci[1])` to `r sprintf('%.2f%%', 100*res$error_ci[2])`. Five-fold cross-validation implies `r sprintf('%.2f%%', 100*(1-res$cv_rf_mean))` error, while the final forest's out-of-bag estimate is `r sprintf('%.2f%%', 100*res$final_oob_error)`. These independent estimates all indicate an expected out-of-sample error below 1%, although performance on new people could be lower because the random split includes measurements from the same six participants in both sets.
+
+```{r importance, echo=FALSE, fig.cap="Figure 3. Ten most influential predictors in the final forest."}
+top <- head(res$importance_table, 10)
+dotchart(rev(top$MeanDecreaseAccuracy), labels = rev(top$variable), pch = 16,
+         color = "black", xlab = "Mean decrease in accuracy")
+```
+
+No manual interaction terms were added. A forest already models interactions through successive splits—for example, a forearm orientation threshold can lead to different rules depending on belt acceleration. Enumerating pairwise terms for 52 inputs would add 1,326 candidates and make a linear expansion difficult to validate. The strong, consistent resampling performance supports the automatic treatment, while the weaker single tree confirms that one simple partition is insufficient.
+
+# Predictions for the 20 test cases
+
+The selected random forest was refit to all `r res$n` labeled rows with 750 trees. The following are the requested predictions, ordered by `problem_id`.
+
+```{r predictions, echo=FALSE}
+knitr::kable(res$predictions, col.names = c("Problem ID", "Predicted classe"))
+```
+
+# Reproducibility and source
+
+This HTML document was knitted from the accompanying R Markdown file. The complete fitting script, fixed random seeds, source CSV files, saved results, and quiz-output files are included in the project directory. Package and session versions appear below.
+
+```{r session-info}
+sessionInfo()
+```
+
+The data were provided by the Pontifical Catholic University of Rio de Janeiro's [Weight Lifting Exercise Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har). The course copies of the [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [20 test cases](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) are retained unchanged.
