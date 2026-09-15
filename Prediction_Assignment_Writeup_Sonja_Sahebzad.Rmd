@@ -1,6 +1,6 @@
 ---
 title: "Predicting Barbell-Lift Execution from Wearable Sensors"
-author: "Sonja Sahebzad"
+author: "Author: Sonja Sahebzad"
 date: "`r format(Sys.Date(), '%d %B %Y')`"
 output:
   html_document:
