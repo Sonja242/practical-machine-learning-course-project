@@ -14,11 +14,11 @@ output:
 
 <style>
 body { font-family: Calibri, "Segoe UI", Arial, sans-serif; color: #111; max-width: 1050px; margin: auto; line-height: 1.5; }
-h1, h2, h3 { color: #111; font-weight: 600; }
+h1, h2, h3 { color: #123b5d; font-weight: 600; }
 table { width: auto; border-collapse: collapse; margin: 1em 0; }
-th { background: #e5e5e5; } th, td { border: 1px solid #999; padding: 5px 9px; }
-pre { border-left: 4px solid #777; background: #f5f5f5; }
-.figure { text-align: center; } .caption { color: #333; }
+th { background: #dceaf5; color: #123b5d; } th, td { border: 1px solid #8aa9bd; padding: 5px 9px; }
+pre { border-left: 4px solid #2c7fb8; background: #f5f8fa; }
+.figure { text-align: center; } .caption { color: #35566f; }
 </style>
 
 ```{r setup, include=FALSE}
@@ -48,8 +48,8 @@ model_data$classe <- factor(model_data$classe)
 ```
 
 ```{r class-distribution, echo=FALSE, fig.cap="Figure 1. Exercise classes are reasonably represented, supporting stratified resampling."}
-cols <- gray.colors(5, start = 0.25, end = 0.80)
-barplot(res$class_counts, col = cols, border = "black",
+cols <- c("#123B5D", "#1F6FA5", "#3F8FC1", "#75B4D8", "#B7D9EC")
+barplot(res$class_counts, col = cols, border = "#123B5D",
         xlab = "Exercise class", ylab = "Training observations")
 ```
 
@@ -73,11 +73,12 @@ cv <- data.frame(
   accuracy = c(res$cv_rf, res$cv_tree),
   model = factor(rep(c("Random forest", "Single tree"), each = 5),
                  levels = c("Single tree", "Random forest")))
-boxplot(accuracy ~ model, data = cv, col = c("white", "gray70"),
-        border = "black", ylab = "Fold accuracy", xlab = "",
+boxplot(accuracy ~ model, data = cv, col = c("#DCEAF5", "#2C7FB8"),
+        border = "#123B5D", ylab = "Fold accuracy", xlab = "",
         ylim = range(cv$accuracy) + c(-0.02, 0.02))
 stripchart(accuracy ~ model, data = cv, vertical = TRUE, add = TRUE,
-           method = "jitter", pch = c(1, 16)[cv$model], col = "black")
+           method = "jitter", pch = c(1, 16)[cv$model],
+           col = c("#557A91", "#083D77")[cv$model])
 ```
 
 The forest's mean cross-validation accuracy was `r sprintf('%.4f', res$cv_rf_mean)` (fold SD `r sprintf('%.4f', res$cv_rf_sd)`), versus `r sprintf('%.4f', res$cv_tree_mean)` (SD `r sprintf('%.4f', res$cv_tree_sd)`) for the single tree. Thus the substantive conclusion is sensitive to choosing a sufficiently flexible model, but the forest result itself is stable across folds.
@@ -95,14 +96,18 @@ The held-out error estimate is **`r sprintf('%.2f%%', 100*res$rf_error)`**. A 95
 ```{r importance, echo=FALSE, fig.cap="Figure 3. Ten most influential predictors in the final forest."}
 top <- head(res$importance_table, 10)
 dotchart(rev(top$MeanDecreaseAccuracy), labels = rev(top$variable), pch = 16,
-         color = "black", xlab = "Mean decrease in accuracy")
+         color = "#0B5EA8", xlab = "Mean decrease in accuracy")
 ```
 
 No manual interaction terms were added. A forest already models interactions through successive splits—for example, a forearm orientation threshold can lead to different rules depending on belt acceleration. Enumerating pairwise terms for 52 inputs would add 1,326 candidates and make a linear expansion difficult to validate. The strong, consistent resampling performance supports the automatic treatment, while the weaker single tree confirms that one simple partition is insufficient.
 
 # Discussion
 
-The close agreement between five-fold cross-validation, held-out validation, and out-of-bag performance supports the stability of the selected random forest. The much lower accuracy of the single tree shows that exercise quality depends on complex combinations of sensor measurements. The main limitation is that the row-level split includes observations from the same participants in development and validation. The reported error therefore estimates performance on similar participants and recording conditions; validation that holds out complete participants would provide a stricter test of generalization to new people.
+The close agreement among five-fold cross-validation (99.32% accuracy), held-out validation (99.61%), and the final forest's out-of-bag estimate supports the stability of the selected model. The single tree reached only 72.81% validation accuracy. This difference is plausible because one tree relies on a limited sequence of splits and is sensitive to small changes in the data, whereas a random forest averages many decorrelated trees. Averaging reduces variance while retaining nonlinear thresholds and interactions among belt, arm, forearm, and dumbbell measurements.
+
+Only 19 of 4,907 validation observations were misclassified. The largest off-diagonal counts involved class C being predicted as B and class D being predicted as C. These errors suggest that some incorrect lifting patterns produce similar sensor signatures, but no class showed a broad systematic failure. Agreement across the three error estimates is more informative than relying on a single accuracy value.
+
+The main limitation is the row-level split: observations from the same six participants can occur in development and validation, and nearby measurements may be correlated. The estimated error therefore applies most directly to similar participants and recording conditions. A stricter follow-up would use leave-one-participant-out validation, tune `mtry` inside nested cross-validation, and report class-specific sensitivity in addition to overall accuracy. More participants would also be needed before claiming that performance generalizes to a wider population. Finally, the 20 quiz cases have no supplied labels, so their prediction chart describes the output distribution rather than proving test-set accuracy.
 
 # Predictions for the 20 test cases
 
@@ -112,9 +117,22 @@ The selected random forest was refit to all `r res$n` labeled rows with 750 tree
 knitr::kable(res$predictions, col.names = c("Problem ID", "Predicted classe"))
 ```
 
+```{r prediction-distribution, echo=FALSE, fig.cap="Figure 4. Distribution of predicted exercise classes across the 20 test cases."}
+predicted_classes <- factor(res$predictions[[2]], levels = c("A", "B", "C", "D", "E"))
+prediction_counts <- table(predicted_classes)
+bar_positions <- barplot(prediction_counts,
+  col = c("#123B5D", "#1F6FA5", "#3F8FC1", "#75B4D8", "#B7D9EC"),
+  border = "#123B5D", ylim = c(0, max(prediction_counts) + 1.5),
+  xlab = "Predicted exercise class", ylab = "Number of test cases")
+text(bar_positions, prediction_counts, labels = prediction_counts,
+     pos = 3, col = "#123B5D", font = 2)
+```
+
+This figure summarizes the prediction mix; the quiz cases have no supplied labels, so it does not represent test-set accuracy.
+
 # Conclusion
 
-The random forest was the strongest candidate, achieving **`r sprintf('%.2f%%', 100*res$rf_acc)`** accuracy on the untouched validation set and an estimated out-of-sample error of **`r sprintf('%.2f%%', 100*res$rf_error)`**. Its consistent cross-validation and out-of-bag results support the final choice. After refitting on all labeled observations, the model generated predictions for each of the 20 required test cases.
+This analysis met the project objective by predicting the five exercise-quality classes from wearable-sensor measurements. The random forest was selected because it substantially outperformed the interpretable single-tree benchmark and remained stable across cross-validation, held-out validation, and out-of-bag assessment. It achieved **`r sprintf('%.2f%%', 100*res$rf_acc)`** accuracy on the untouched validation set, corresponding to an estimated out-of-sample error of **`r sprintf('%.2f%%', 100*res$rf_error)`**. After selection, the model was refit on all 19,622 labeled observations and produced the required predictions for all 20 quiz cases. These results provide strong evidence for performance under similar recording conditions, while participant-level validation would be required to make a stronger claim about completely new users.
 
 # Reproducibility and source
 
@@ -125,5 +143,7 @@ sessionInfo()
 ```
 
 The data were provided by the Pontifical Catholic University of Rio de Janeiro's [Weight Lifting Exercise Dataset](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har). The course copies of the [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [20 test cases](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv) are retained unchanged.
+
+
 
 
